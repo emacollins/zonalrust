@@ -57,8 +57,8 @@ impl Geometry {
 
     // Example pairs: (20 10, 10 20, 30 30)
     fn parse_linestring(pairs: &str) -> Result<LineString, String> {
-        let inner = pairs.strip_prefix("(").ok_or_else(|| format!("Bad prefix: {}", pairs).to_string())?
-                                     .strip_suffix(")").ok_or_else(|| format!("Bad suffix: {}", pairs).to_string())?;
+        let inner = pairs.strip_prefix("(").ok_or_else(|| format!("Bad prefix: {}", pairs))?
+                                     .strip_suffix(")").ok_or_else(|| format!("Bad suffix: {}", pairs))?;
 
         let points: Result<Vec<Point>, String> = inner.split(",").map(|pair| Self::parse_point(pair.trim())).collect();
 
@@ -69,8 +69,8 @@ impl Geometry {
     fn parse_point_wkt(wkt: &str) -> Result<Geometry, String>{
         
         // Strip prefix first, then suffix to get string of numeric values.
-        let inner = wkt.strip_prefix("POINT (").ok_or_else(|| format!("Bad prefix: {}", wkt).to_string())?
-                                     .strip_suffix(")").ok_or_else(|| format!("Bad suffix: {}", wkt).to_string())?;
+        let inner = wkt.strip_prefix("POINT (").ok_or_else(|| format!("Bad prefix: {}", wkt))?
+                                     .strip_suffix(")").ok_or_else(|| format!("Bad suffix: {}", wkt))?;
 
         let point= Self::parse_point(inner)?;
 
@@ -81,7 +81,7 @@ impl Geometry {
     fn parse_linestring_wkt(wkt: &str) -> Result<Geometry, String>{
         
         // Strip prefix first, then suffix to get string of numeric values.
-        let inner = wkt.strip_prefix("LINESTRING").ok_or_else(|| format!("Bad prefix: {}", wkt).to_string())?;
+        let inner = wkt.strip_prefix("LINESTRING").ok_or_else(|| format!("Bad prefix: {}", wkt))?;
 
         let linestring = Self::parse_linestring(inner.trim())?;
 
@@ -92,8 +92,8 @@ impl Geometry {
 
     fn parse_polygon_wkt(wkt: &str) -> Result<Geometry, String>{
         // Strip prefix first, then suffix to get string of numeric values.
-        let inner = wkt.strip_prefix("POLYGON (").ok_or_else(|| format!("Bad prefix: {}", wkt).to_string())?
-                             .strip_suffix(")").ok_or_else(|| format!("Bad suffix: {}", wkt).to_string())?;
+        let inner = wkt.strip_prefix("POLYGON (").ok_or_else(|| format!("Bad prefix: {}", wkt))?
+                             .strip_suffix(")").ok_or_else(|| format!("Bad suffix: {}", wkt))?;
         
         
         let linestrings: Vec<LineString> = inner.split_inclusive("), ")
