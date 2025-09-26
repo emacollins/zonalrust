@@ -1,6 +1,7 @@
 use std::{path::{Path, PathBuf}};
 
 pub mod wkt;
+pub mod raster;
 
 #[derive(Debug)]
 pub struct Config {
