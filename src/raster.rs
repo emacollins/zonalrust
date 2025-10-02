@@ -83,21 +83,26 @@ impl Raster {
         }
     }
 
-    /// Returns (i0, i1, j0, j1) where both ends are inclusive.
-    /// Loops should use `for i in i0..=i1`.
+    /// Returns (i0, i1, j0, j1) where i1 and j1 are exclusive upper bounds.
+    /// Loops should use `for i in i0..i1`.
     /// assume: x_min, y_max, x_res>0, y_res<0
-    fn bbox_to_index_ranges(&self, lon_min: f64, lat_min: f64, lon_max: f64, lat_max: f64) -> Option<(usize, usize, usize, usize)>{
+    pub fn bbox_to_index_ranges(&self, lon_min: f64, lat_min: f64, lon_max: f64, lat_max: f64) -> Option<(usize, usize, usize, usize)>{
         if !(lon_min < lon_max && lat_min < lat_max) { return None; }
 
         let py = -self.y_res;
 
         let mut i0 = ((lon_min - self.x_min) / self.x_res).floor() as isize;
-        let mut i1 = ((lon_max - self.x_min) / self.x_res).ceil()  as isize;
+        let mut i1 = ((lon_max - self.x_min) / self.x_res).floor() as isize + 1;
 
         let mut j0 = ((self.y_max - lat_max) / py).floor() as isize;
-        let mut j1 = ((self.y_max - lat_min) / py).ceil()  as isize;
+        let mut j1 = ((self.y_max - lat_min) / py).floor() as isize + 1;
 
-        // clamp to [0, width/height]
+        println!("i0: {i0}");
+        println!("i1: {i1}");
+        println!("j0: {j0}");
+        println!("j1: {j1}");
+
+        // clamp to [0, width) and [0, height)
         let w = self.width as isize;
         let h = self.height as isize;
         i0 = i0.clamp(0, w);
@@ -120,13 +125,13 @@ impl Raster {
 
         let mut sum: f32 = 0.0;
         let mut count: i32 = 0;
-        for x in i0..=i1 {
-            for y in j0..=j1 {
+        for x in i0..i1 {
+            for y in j0..j1 {
                 if let Some(value) = self.get(x, y) {
                     sum += value;
                     count += 1;
                 };
-                
+
             }
         }
         if count > 0 {
