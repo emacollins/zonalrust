@@ -125,15 +125,18 @@ impl Raster {
 
         let mut sum: f32 = 0.0;
         let mut count: i32 = 0;
-        for x in i0..i1 {
-            for y in j0..j1 {
-                if let Some(value) = self.get(x, y) {
-                    sum += value;
-                    count += 1;
-                };
 
+        for y in j0..j1 {
+            let row_start = y * self.width + i0;
+            let row_end = y * self.width + i1;
+            let row_slice = &self.data[row_start..row_end];
+
+            for &value in row_slice {
+                sum += value;
+                count += 1;
             }
         }
+
         if count > 0 {
             return Ok(sum / count as f32)
         } else {
