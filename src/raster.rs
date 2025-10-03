@@ -75,53 +75,14 @@ impl Raster {
         Ok(Raster {width, height, x_min, y_max, x_res, y_res, data})
     }
 
-    pub fn get(&self, x: usize, y: usize) -> Option<f32> {
-        if x < self.width && y < self.height {
-            Some(self.data[y * self.width + x])
-        } else {
-            None
-        }
+    pub fn get(&self, x: f64, y: f64) -> Result<f32, String> {
+        let (i, j) = Self::coords_to_index(&self, x, y)?;
+        Ok(self.data[j * self.width + i])
     }
 
-    /// Returns (i0, i1, j0, j1) where i1 and j1 are exclusive upper bounds.
-    /// Loops should use `for i in i0..i1`.
-    /// assume: x_min, y_max, x_res>0, y_res<0
-    pub fn bbox_to_index_ranges(&self, lon_min: f64, lat_min: f64, lon_max: f64, lat_max: f64) -> Option<(usize, usize, usize, usize)>{
-        if !(lon_min < lon_max && lat_min < lat_max) { return None; }
+    pub fn mean_in_bbox(&self, x_min: f64, y_min: f64, x_max: f64, y_max: f64) -> Result<f32, String> {
 
-        let py = -self.y_res;
-
-        let mut i0 = ((lon_min - self.x_min) / self.x_res).floor() as isize;
-        let mut i1 = ((lon_max - self.x_min) / self.x_res).floor() as isize + 1;
-
-        let mut j0 = ((self.y_max - lat_max) / py).floor() as isize;
-        let mut j1 = ((self.y_max - lat_min) / py).floor() as isize + 1;
-
-        println!("i0: {i0}");
-        println!("i1: {i1}");
-        println!("j0: {j0}");
-        println!("j1: {j1}");
-
-        // clamp to [0, width) and [0, height)
-        let w = self.width as isize;
-        let h = self.height as isize;
-        i0 = i0.clamp(0, w);
-        i1 = i1.clamp(0, w);
-        j0 = j0.clamp(0, h);
-        j1 = j1.clamp(0, h);
-
-        if i0 >= i1 || j0 >= j1 { return None; }
-
-        Some((i0 as usize, i1 as usize, j0 as usize, j1 as usize))
-    }
-
-
-    pub fn mean_in_bbox(&self, lon_min: f64, lat_min: f64, lon_max: f64, lat_max: f64) -> Result<f32, String> {
-
-        let (i0, i1, j0, j1) = match Self::bbox_to_index_ranges(&self, lon_min, lat_min, lon_max, lat_max) {
-                                                            Some(t) => t,
-                                                            None => return  Err("Could not convert bbox to index".to_string())
-                                                            };
+        let (i0, i1, j0, j1) = Self::bbox_coords_to_index_ranges(&self, x_min, y_min, x_max, y_max)?;
 
         let mut sum: f32 = 0.0;
         let mut count: i32 = 0;
@@ -143,6 +104,44 @@ impl Raster {
             return Ok(0.0)
         }
     }
+
+
+    fn coords_to_index(&self, x: f64, y:f64) -> Result<(usize, usize), String> {
+
+        let i = ((x - self.x_min) / self.x_res).floor() as isize;
+        let j = ((y - self.y_max) / self.y_res).floor() as isize;
+
+        if i < 0 || j < 0 {
+            return Err("Invalid coords: Negative indices".to_string())
+        }
+
+        let i = i as usize;
+        let j = j as usize;
+
+        if i > self.width - 1 || j > self.height - 1 {
+            return Err("Invalid coords: Out of raster bounds".to_string())
+        }
+
+        Ok((i, j))
+    }
+
+    /// Returns (i0, i1, j0, j1) where i1 and j1 are exclusive upper bounds.
+    /// Loops should use `for i in i0..i1`.
+    /// assume: x_min, y_max, x_res>0, y_res<0
+    fn bbox_coords_to_index_ranges(&self, x_min: f64, y_min: f64, x_max: f64, y_max: f64) -> Result<(usize, usize, usize, usize), String>{
+        if !(x_min < x_max && y_min < y_max) { return Err("Bounding box coordinates not valid".to_string()); }
+
+        let (i0, j0) = Self::coords_to_index(&self, x_min, y_max)?;
+        let (mut i1, mut j1) = Self::coords_to_index(&self, x_max, y_min)?;
+
+        // Since we want to return exclusive upper bounds, we add one to the end index
+        i1 += 1;
+        j1 += 1;
+
+
+        Ok((i0 as usize, i1 as usize, j0 as usize, j1 as usize))
+    }
+
 }
 
 mod tests {
@@ -186,14 +185,14 @@ mod tests {
         // Bounding Box within raster
         let mean_1 = raster.mean_in_bbox(0.25, -0.25, 0.50, 0.0).unwrap();
 
-        // Bounding Box outside raster bounds, expect mean of just box that is inside of bounds
-        let mean_2 = raster.mean_in_bbox(0.25, -0.25, 0.75, 0.0).unwrap();
+        // Bounding Box outside raster bounds, expect error
+        let bad_mean_1 = raster.mean_in_bbox(0.25, -0.25, 0.75, 0.0);
 
-        // Case where lon min > lon max, expect error message
-        let bad_mean = raster.mean_in_bbox(0.50, -0.25, 0.25, 0.25);
+        // Case where x min > x max, expect error message
+        let bad_mean_2 = raster.mean_in_bbox(0.50, -0.25, 0.25, 0.25);
 
         assert_eq!(mean_1, 4.0);
-        assert_eq!(mean_2, 4.0);
-        assert_eq!(bad_mean, Err("Could not convert bbox to index".to_string()));
+        assert_eq!(bad_mean_1, Err("Invalid coords: Out of raster bounds".to_string()));
+        assert_eq!(bad_mean_2, Err("Bounding box coordinates not valid".to_string()));
     }
 }
