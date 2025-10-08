@@ -16,13 +16,28 @@ pub struct Raster {
 
 impl Raster {
     pub fn from_files(meta_path: &Path, bin_path: &Path) -> Result<Self, String> {
-        let metadata: Vec<f64> = match read_to_string(meta_path) {
-            Ok(wh) => wh.split_whitespace()
-                                .map(|str| str.parse::<f64>()
-                                                    .map_err(|_| format!("Invalid number: {str}")))
-                                .collect::<Result<_, _>>()?,
-            _ => return Err(format!("Error reading metadata string from path: {}", meta_path.display()))
-        };
+        let metadata: String = read_to_string(meta_path).map_err(|e| format!("Error reading metadata file: {e}"))?;
+        let tokens: Vec<&str> = metadata.split_whitespace().collect::<Vec<&str>>();
+        if tokens.len() != 6 {
+            return Err(format!("Expected 6 metadata fields, got {}", tokens.len()))
+        }
+        let width: usize = tokens[0].parse().map_err(|_| "invalid width".to_string())?;
+        let height: usize = tokens[1].parse().map_err(|_| "invalid height".to_string())?;
+        let x_min: f64 = tokens[2].parse().map_err(|_| "invalid x_min".to_string())?;
+        let y_max: f64 = tokens[3].parse().map_err(|_| "invalid y_max".to_string())?;
+        let x_res: f64 = tokens[4].parse().map_err(|_| "invalid x_res".to_string())?;
+        let y_res: f64 = tokens[5].parse().map_err(|_| "invalid y_res".to_string())?;
+
+        // Validation of fields here should eventually be moved to their own method
+        if x_res == 0. {
+            return Err("X resolution is zero!".to_string())
+        }
+        if y_res == 0. {
+            return Err("Y resolution is zero!".to_string())
+        }
+        if y_res > 0. {
+            return Err("Y resolution should be negative, we are assuming north-up!".to_string())
+        }
 
         let binary_data: Vec<u8> = read(bin_path).map_err(|_|format!("Error reading binary from path: {}", bin_path.display()))?;
         if binary_data.len() % size_of::<f32>() != 0 {
@@ -35,35 +50,6 @@ impl Raster {
                                             f32::from_le_bytes(bytes)
                                         })
                                         .collect();
-
-        let width: usize = match metadata.get(0) {
-            Some(s) => *s as usize,
-            None => return Err(format!("No width value in metadata"))
-        };
-
-        let height: usize = match metadata.get(1) {
-            Some(s) => *s as usize,
-            None => return Err(format!("No height value in metadata"))
-        };
-
-        let x_min: f64 = match metadata.get(2) {
-            Some(s) => *s,
-            None => return Err(format!("No x_min value in metadata"))
-        };
-
-        let y_max: f64 = match metadata.get(3) {
-            Some(s) => *s,
-            None => return Err(format!("No y_max value in metadata"))
-        };
-
-        let x_res: f64 = match metadata.get(4) {
-            Some(s) => *s,
-            None => return Err(format!("No x_res value in metadata"))
-        };
-        let y_res: f64 = match metadata.get(5) {
-            Some(s) => *s,
-            None => return Err(format!("No y_res value in metadata"))
-        };
 
 
         let expected_length = width.checked_mul(height).ok_or(format!("Overflow with width and height: {} x {}", width, height))?;
@@ -85,7 +71,7 @@ impl Raster {
         let (i0, i1, j0, j1) = Self::bbox_coords_to_index_ranges(&self, x_min, y_min, x_max, y_max)?;
 
         let mut sum: f32 = 0.0;
-        let mut count: i32 = 0;
+        let mut count: usize = 0;
 
         for y in j0..j1 {
             let row_start = y * self.width + i0;
@@ -101,10 +87,9 @@ impl Raster {
         if count > 0 {
             return Ok(sum / count as f32)
         } else {
-            return Ok(0.0)
+            return Err("no overlapping cells between provided bounding box and raster".to_string())
         }
     }
-
 
     fn coords_to_index(&self, x: f64, y:f64) -> Result<(usize, usize), String> {
 
@@ -118,7 +103,7 @@ impl Raster {
         let i = i as usize;
         let j = j as usize;
 
-        if i > self.width - 1 || j > self.height - 1 {
+        if i >= self.width || j >= self.height {
             return Err("Invalid coords: Out of raster bounds".to_string())
         }
 
@@ -126,20 +111,37 @@ impl Raster {
     }
 
     /// Returns (i0, i1, j0, j1) where i1 and j1 are exclusive upper bounds.
+    /// If bounding box is out of raster bounds, we clamp to raster edges
     /// Loops should use `for i in i0..i1`.
     /// assume: x_min, y_max, x_res>0, y_res<0
     fn bbox_coords_to_index_ranges(&self, x_min: f64, y_min: f64, x_max: f64, y_max: f64) -> Result<(usize, usize, usize, usize), String>{
         if !(x_min < x_max && y_min < y_max) { return Err("Bounding box coordinates not valid".to_string()); }
 
-        let (i0, j0) = Self::coords_to_index(&self, x_min, y_max)?;
-        let (mut i1, mut j1) = Self::coords_to_index(&self, x_max, y_min)?;
+        let x_max_grid = self.x_min + ((self.width) as f64) * self.x_res;
+        let y_min_grid = self.y_max + ((self.height) as f64) * self.y_res; // assume y_res < 0
 
-        // Since we want to return exclusive upper bounds, we add one to the end index
-        i1 += 1;
-        j1 += 1;
+        // clamp to overlap
+        let x0 = x_min.clamp(self.x_min, x_max_grid);
+        let x1 = x_max.clamp(self.x_min, x_max_grid);
+        let y0 = y_min.clamp(y_min_grid, self.y_max);
+        let y1 = y_max.clamp(y_min_grid, self.y_max);
+
+        if !(x0 < x1 && y0 < y1) {
+            return Err("no overlapping cells between provided bounding box and raster".to_string());
+        }
+
+        // Want exlcusive upper bounds, so use ceiling for 
+        let i0 = ((x0 - self.x_min) / self.x_res).floor() as usize;
+        let i1 = ((x1 - self.x_min) / self.x_res).ceil() as usize;
+        let j0 = ((y1 - self.y_max) / self.y_res).floor() as usize;
+        let j1 = ((y0 - self.y_max) / self.y_res).ceil() as usize;
+
+        if i0 >= i1 || j0 >= j1 {
+            return Err("no overlapping cells between provided bounding box and raster".into());
+        }
 
 
-        Ok((i0 as usize, i1 as usize, j0 as usize, j1 as usize))
+        Ok((i0, i1, j0, j1))
     }
 
 }
@@ -180,19 +182,18 @@ mod tests {
 
     #[test]
     fn mean_in_bbox_ok() {
-        let raster = Raster {width: 3, height: 2, x_min: 0.0, y_max: 0.0, x_res: 0.25, y_res: -0.25, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]};
+        let r = Raster {width: 3, height: 2, x_min: 0.0, y_max: 0.0, x_res: 0.25, y_res: -0.25, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]};
 
-        // Bounding Box within raster
-        let mean_1 = raster.mean_in_bbox(0.25, -0.25, 0.50, 0.0).unwrap();
+        assert_eq!(r.mean_in_bbox(0.25, -0.25, 0.50, 0.0), Ok(2.0 / 1.0));
+        assert_eq!(r.mean_in_bbox(0.25, -0.25, 1.0, 0.0), Ok( (3.0 + 2.0) / 2.0 )); // Bounding Box partially in raster (x_max is out of bounds)
+        assert_eq!(r.mean_in_bbox(0.26, -0.24, 0.49, 0.01), Ok(2.0 / 1.0));
+        assert_eq!(r.mean_in_bbox(0.50, -0.25, 0.25, 0.25), Err("Bounding box coordinates not valid".to_string())); // Case where x min > x max, expect error message
+        assert_eq!(r.mean_in_bbox(0.50, -0.25, 0.75, 0.0), Ok( 3.0 )); // bbox whose right edge == raster right edge (0.75) should not include column 2 beyond it
+        assert_eq!(r.mean_in_bbox(0.0, -0.50, 0.25, -0.25), Ok(4.0)); // only j=1,i=0
+        assert!(r.mean_in_bbox(0.80, -0.10, 0.90, 0.10).is_err());
+        assert!(r.mean_in_bbox(0.80, -0.4, 0.80, -0.3).is_err());
+        assert_eq!(r.mean_in_bbox(0.0, -0.25, 0.01, 0.0), Ok(1.0)); // top-left cell (i=0,j=0) should be included if bbox touches its top/left edges
 
-        // Bounding Box outside raster bounds, expect error
-        let bad_mean_1 = raster.mean_in_bbox(0.25, -0.25, 0.75, 0.0);
 
-        // Case where x min > x max, expect error message
-        let bad_mean_2 = raster.mean_in_bbox(0.50, -0.25, 0.25, 0.25);
-
-        assert_eq!(mean_1, 4.0);
-        assert_eq!(bad_mean_1, Err("Invalid coords: Out of raster bounds".to_string()));
-        assert_eq!(bad_mean_2, Err("Bounding box coordinates not valid".to_string()));
     }
 }
