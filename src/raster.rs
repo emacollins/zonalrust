@@ -10,7 +10,7 @@ pub struct Raster {
     x_min: f64,
     y_max: f64,
     x_res: f64,
-    y_res: f64,
+    y_res: f64, //north-up
     data: Vec<f32>, //row-major order
 }
 
@@ -37,6 +37,14 @@ impl Raster {
         }
         if y_res > 0. {
             return Err("Y resolution should be negative, we are assuming north-up!".to_string())
+        }
+
+        if width <= 0 {
+            return Err("Width not valid".to_string())
+        }
+
+        if height <= 0 {
+            return Err("Height not valid".to_string())
         }
 
         let binary_data: Vec<u8> = read(bin_path).map_err(|_|format!("Error reading binary from path: {}", bin_path.display()))?;
@@ -92,9 +100,11 @@ impl Raster {
     }
 
     fn coords_to_index(&self, x: f64, y:f64) -> Result<(usize, usize), String> {
+        
+        let dy = self.y_res.abs();
 
         let i = ((x - self.x_min) / self.x_res).floor() as isize;
-        let j = ((y - self.y_max) / self.y_res).floor() as isize;
+        let j = ((self.y_max - y) / dy).floor() as isize;
 
         if i < 0 || j < 0 {
             return Err("Invalid coords: Negative indices".to_string())
@@ -131,10 +141,11 @@ impl Raster {
         }
 
         // Want exlcusive upper bounds, so use ceiling for x1 & y1
+        let dy = self.y_res.abs();
         let i0 = ((x0 - self.x_min) / self.x_res).floor() as usize;
         let i1 = ((x1 - self.x_min) / self.x_res).ceil() as usize;
-        let j0 = ((y1 - self.y_max) / self.y_res).floor() as usize;
-        let j1 = ((y0 - self.y_max) / self.y_res).ceil() as usize;
+        let j0 = ((self.y_max - y1) / dy).floor() as usize;
+        let j1 = ((self.y_max - y0) / dy).ceil() as usize;
 
         if i0 >= i1 || j0 >= j1 {
             return Err("no overlapping cells between provided bounding box and raster".into());
