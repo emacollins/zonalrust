@@ -130,7 +130,7 @@ impl Raster {
             return Err("no overlapping cells between provided bounding box and raster".to_string());
         }
 
-        // Want exlcusive upper bounds, so use ceiling for 
+        // Want exlcusive upper bounds, so use ceiling for x1 & y1
         let i0 = ((x0 - self.x_min) / self.x_res).floor() as usize;
         let i1 = ((x1 - self.x_min) / self.x_res).ceil() as usize;
         let j0 = ((y1 - self.y_max) / self.y_res).floor() as usize;
@@ -139,7 +139,6 @@ impl Raster {
         if i0 >= i1 || j0 >= j1 {
             return Err("no overlapping cells between provided bounding box and raster".into());
         }
-
 
         Ok((i0, i1, j0, j1))
     }
@@ -185,13 +184,13 @@ mod tests {
         let r = Raster {width: 3, height: 2, x_min: 0.0, y_max: 0.0, x_res: 0.25, y_res: -0.25, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]};
 
         assert_eq!(r.mean_in_bbox(0.25, -0.25, 0.50, 0.0), Ok(2.0 / 1.0));
-        assert_eq!(r.mean_in_bbox(0.25, -0.25, 1.0, 0.0), Ok( (3.0 + 2.0) / 2.0 )); // Bounding Box partially in raster (x_max is out of bounds)
+        assert_eq!(r.mean_in_bbox(0.25, -0.25, 1.0, 0.0), Ok( (3.0 + 2.0) / 2.0 )); // bbox partially in raster (x_max is out of bounds)
         assert_eq!(r.mean_in_bbox(0.26, -0.24, 0.49, 0.01), Ok(2.0 / 1.0));
         assert_eq!(r.mean_in_bbox(0.50, -0.25, 0.25, 0.25), Err("Bounding box coordinates not valid".to_string())); // Case where x min > x max, expect error message
-        assert_eq!(r.mean_in_bbox(0.50, -0.25, 0.75, 0.0), Ok( 3.0 )); // bbox whose right edge == raster right edge (0.75) should not include column 2 beyond it
+        assert_eq!(r.mean_in_bbox(0.50, -0.25, 0.75, 0.0), Ok( 3.0 / 1.0 )); // bbox whose right edge == raster right edge (0.75) should not include column 2 beyond it
         assert_eq!(r.mean_in_bbox(0.0, -0.50, 0.25, -0.25), Ok(4.0)); // only j=1,i=0
-        assert!(r.mean_in_bbox(0.80, -0.10, 0.90, 0.10).is_err());
-        assert!(r.mean_in_bbox(0.80, -0.4, 0.80, -0.3).is_err());
+        assert!(r.mean_in_bbox(0.80, -0.10, 0.90, 0.10).is_err()); // bbox fully outside grid
+        assert!(r.mean_in_bbox(0.80, -0.4, 0.80, -0.3).is_err()); // x_min and x_max are equal, violating that x_max must be greater
         assert_eq!(r.mean_in_bbox(0.0, -0.25, 0.01, 0.0), Ok(1.0)); // top-left cell (i=0,j=0) should be included if bbox touches its top/left edges
 
 
